@@ -91,10 +91,10 @@ fn shuffle_pdf(input_path: &Path, output_path: &Path) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("Failed to get page {}", i + 1))?;
         output_pdf.add_page(front_page, false)?;
 
-        // Add back page (from second half)
+        // Add back page (from second half, reversed)
         let back_page = all_pages
-            .get(half + i)
-            .ok_or_else(|| anyhow::anyhow!("Failed to get page {}", half + i + 1))?;
+            .get(page_count - 1 - i)
+            .ok_or_else(|| anyhow::anyhow!("Failed to get page {}", page_count - i))?;
         output_pdf.add_page(back_page, false)?;
     }
 
