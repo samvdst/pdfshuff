@@ -7,3 +7,6 @@ edition = "2024"
 qpdf = { version = "0.3", features = ["vendored"] }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
+eframe = "0.31"
+egui = "0.31"
+rfd = "0.15"

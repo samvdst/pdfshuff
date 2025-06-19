@@ -1,36 +1,124 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // Hide console window on Windows in release builds
+
 use anyhow::{Context, Result, bail};
-use clap::Parser;
+use eframe::egui;
 use qpdf::*;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, channel};
+use std::thread;
 
-#[derive(Parser, Debug)]
-#[command(author, version, about = "A simple CLI tool to shuffle PDF pages for double-sided scanning", long_about = None)]
-struct Args {
-    /// Input PDF file path
-    input: PathBuf,
+fn main() -> Result<(), eframe::Error> {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([400.0, 300.0])
+            .with_title("PDF Shuffler"),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "PDF Shuffler",
+        options,
+        Box::new(|_cc| Ok(Box::new(PdfShufflerApp::default()))),
+    )
 }
 
-fn main() -> Result<()> {
-    let args = Args::parse();
+#[derive(Default)]
+struct PdfShufflerApp {
+    status: String,
+    status_receiver: Option<Receiver<String>>,
+    is_processing: bool,
+}
 
-    // Check if input file exists
-    if !args.input.exists() {
-        bail!("Input file '{}' does not exist", args.input.display());
+impl eframe::App for PdfShufflerApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for status updates from background thread
+        if let Some(receiver) = &self.status_receiver {
+            if let Ok(status) = receiver.try_recv() {
+                self.status = status;
+                self.is_processing = false;
+                self.status_receiver = None;
+            }
+        }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(50.0);
+
+                ui.heading("PDF Shuffler");
+                ui.add_space(20.0);
+
+                ui.label("Drag and drop a PDF file here");
+                ui.add_space(10.0);
+                ui.label("to shuffle pages for double-sided scanning");
+
+                ui.add_space(40.0);
+
+                // Show status
+                if !self.status.is_empty() {
+                    if self.is_processing {
+                        ui.spinner();
+                    }
+                    ui.label(&self.status);
+                }
+            });
+        });
+
+        // Handle file drops
+        ctx.input(|i| {
+            if !i.raw.dropped_files.is_empty() && !self.is_processing {
+                let dropped_file = &i.raw.dropped_files[0];
+
+                if let Some(path) = &dropped_file.path {
+                    self.process_file(path.clone());
+                }
+            }
+        });
+
+        // Enable file dropping
+        preview_files_being_dropped(ctx);
+    }
+}
+
+impl PdfShufflerApp {
+    fn process_file(&mut self, path: PathBuf) {
+        let (sender, receiver) = channel();
+        self.status_receiver = Some(receiver);
+        self.is_processing = true;
+        self.status = "Processing...".to_string();
+
+        thread::spawn(move || {
+            let result = process_pdf(&path);
+            match result {
+                Ok(output_path) => {
+                    let _ = sender.send(format!(
+                        "✓ Success! Saved to: {}",
+                        output_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                    ));
+                }
+                Err(e) => {
+                    let _ = sender.send(format!("✗ Error: {}", e));
+                }
+            }
+        });
+    }
+}
+
+fn process_pdf(input_path: &Path) -> Result<PathBuf> {
+    // Check if it's a PDF
+    if input_path.extension().and_then(|e| e.to_str()) != Some("pdf") {
+        bail!("File must be a PDF");
     }
 
     // Generate output filename
-    let output_path = generate_output_path(&args.input)?;
+    let output_path = generate_output_path(input_path)?;
 
     // Process the PDF
-    shuffle_pdf(&args.input, &output_path)?;
+    shuffle_pdf(input_path, &output_path)?;
 
-    println!(
-        "Successfully shuffled PDF: {} -> {}",
-        args.input.display(),
-        output_path.display()
-    );
-
-    Ok(())
+    Ok(output_path)
 }
 
 fn generate_output_path(input_path: &Path) -> Result<PathBuf> {
@@ -38,17 +126,6 @@ fn generate_output_path(input_path: &Path) -> Result<PathBuf> {
         .file_stem()
         .context("Invalid input file path")?
         .to_string_lossy();
-
-    let extension = input_path
-        .extension()
-        .context("Input file has no extension")?;
-
-    if extension != "pdf" {
-        bail!(
-            "Input file must be a PDF (has extension: {})",
-            extension.to_string_lossy()
-        );
-    }
 
     let output_filename = format!("{}_shuff.pdf", stem);
 
@@ -103,4 +180,25 @@ fn shuffle_pdf(input_path: &Path, output_path: &Path) -> Result<()> {
     std::fs::write(output_path, pdf_data)?;
 
     Ok(())
+}
+
+fn preview_files_being_dropped(ctx: &egui::Context) {
+    use egui::*;
+
+    if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
+        let painter = ctx.layer_painter(LayerId::new(
+            Order::Foreground,
+            Id::new("file_drop_overlay"),
+        ));
+
+        let screen_rect = ctx.screen_rect();
+        painter.rect_filled(screen_rect, 0.0, Color32::from_black_alpha(192));
+        painter.text(
+            screen_rect.center(),
+            Align2::CENTER_CENTER,
+            "Drop to shuffle PDF",
+            FontId::proportional(24.0),
+            Color32::WHITE,
+        );
+    }
 }
