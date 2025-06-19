@@ -2,6 +2,9 @@
 name = "pdfshuff"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Fix PDFs scanned twice on a single-sided scanner"
+repository = "https://github.com/samvdst/pdfshuff"
 
 [dependencies]
 qpdf = { version = "0.3", features = ["vendored"] }
