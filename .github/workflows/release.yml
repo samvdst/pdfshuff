@@ -59,26 +59,17 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.platform.target }}
 
-      - name: Package (Unix)
-        if: matrix.platform.os != 'windows-latest'
+      - name: Rename binary
         run: |
           cd target/${{ matrix.platform.target }}/release
-          tar czf ../../../pdfshuff-${{ matrix.platform.name }}.tar.gz ${{ matrix.platform.binary }}
-          cd -
+          if [ "${{ matrix.platform.os }}" = "windows-latest" ]; then
+            cp ${{ matrix.platform.binary }} ../../../pdfshuff-${{ matrix.platform.name }}.exe
+          else
+            cp ${{ matrix.platform.binary }} ../../../pdfshuff-${{ matrix.platform.name }}
+          fi
+        shell: bash
 
-      - name: Package (Windows)
-        if: matrix.platform.os == 'windows-latest'
-        run: |
-          cd target/${{ matrix.platform.target }}/release
-          7z a ../../../pdfshuff-${{ matrix.platform.name }}.zip ${{ matrix.platform.binary }}
-          cd -
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./pdfshuff-${{ matrix.platform.name }}.${{ matrix.platform.os == 'windows-latest' && 'zip' || 'tar.gz' }}
-          asset_name: pdfshuff-${{ matrix.platform.name }}.${{ matrix.platform.os == 'windows-latest' && 'zip' || 'tar.gz' }}
-          asset_content_type: ${{ matrix.platform.os == 'windows-latest' && 'application/zip' || 'application/gzip' }}
+          files: pdfshuff-${{ matrix.platform.name }}${{ matrix.platform.os == 'windows-latest' && '.exe' || '' }}
